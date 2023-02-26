@@ -1,42 +1,193 @@
 import textwrap
+import abc 
+import datetime
 
-def depositar(valor, saldo, extrato, /):
-    if valor > 0:
-        saldo += valor
-        extrato += f"Depósito: R$ {valor:.2f}\n"
-    else:
-        print("Operação falhou! O valor informado é inválido")
+class Conta:
+    _agencia = "001"
 
-    return saldo, extrato
+    def __init__(self, cliente, numero):
+        self._cliente = cliente
+        self._numero = numero
+        self._saldo = 0.0
+        self._historico = Historico()
 
-def sacar(*, valor, saldo, extrato, limite, numero_saques, LIMITE_SAQUES):
-    msg = "Operação falhou! "
-    valorPositivo = valor > 0
-    possuiSaldo = valor <= saldo
-    possuiLimite = valor <= limite
-    possuiSaques = numero_saques < LIMITE_SAQUES
-    if valorPositivo and possuiSaldo and possuiLimite and possuiSaques:
-        saldo -= valor
-        numero_saques += 1
-        extrato += f"Saque: R$ {valor:.2f}\n"
+    @property
+    def saldo(self):
+        return self._saldo
     
-    else:
-        if not valorPositivo:
-            msg += "O valor do saque deve ser positivo. "
-        if not possuiSaldo:
-            msg += "Saldo insuficiente. "
-        if not possuiLimite:
-            msg += "Limite de saque excedido. "
-        if not possuiSaques:
-            msg += "Limite de saques diários alcançado. "
-        print(msg)
-    return saldo, extrato
+    @property
+    def agencia(self):
+        return self._agencia
+    
+    @property
+    def cliente(self):
+        return self._cliente
+    
+    @property
+    def numero(self):
+        return self._numero
 
-def func_extrato(saldo, extrato):
-    print(f"==================== EXTRATO ====================")
-    print("Não foram realizadas movimentações." if not extrato else extrato)
-    print(f'Saldo: R$ {saldo:.2f}')
-    print("=================================================")
+    @property
+    def historico(self):
+        return self._historico
+    
+    def mostrar_historico(self):
+        string = f"\n=================================================\n"
+        string += f"Saldo:  {self._saldo:.2f}\n"
+        string += f"=================================================\n"
+        string += self._historico.__str__()
+        print(string)
+    
+    @classmethod
+    def nova_conta(cls, cliente, numero):
+        return cls(cliente, numero)
+    
+    def sacar(self, valor):
+        valorPositivo = valor > 0
+        possuiSaldo = valor <= self._saldo
+
+
+        if valorPositivo and possuiSaldo:
+            self._saldo -= valor
+            return True
+
+        if not valorPositivo:
+            print("Operação falhou! O valor informado é inválido")
+        else:
+            print("Operação falhou! Saldo insuficiente!")
+        return False
+    
+    def depositar(self, valor):
+        if valor > 0:
+            self._saldo += valor
+            return True
+        
+        print("Operação falhou! O valor informado é inválido")
+        return False;
+
+class ContaCorrente(Conta):
+    def __init__(self, limite=500, limite_saques=3, **kw):
+        self._limite = limite
+        self._limite_saques = limite_saques
+        super().__init__(**kw)
+
+    def sacar(self, valor):
+        numero_saques = len(
+            [transacao for transacao in self.historico.transacoes if transacao["tipo"] == Saque.__name__]
+        )
+
+        excedeu_limite = valor > self._limite
+        excedeu_saques = numero_saques >= self._limite_saques
+
+        if excedeu_limite:
+            print("\nOperação falhou! O valor do saque excede o limite.")
+
+        elif excedeu_saques:
+            print("\nOperação falhou! Número máximo de saques excedido.")
+
+        else:
+            return super().sacar(valor)
+
+        return False
+
+class Cliente:
+    def __init__(self, endereco):
+        self._endereco = endereco
+        self._contas = []
+
+    @property
+    def contas(self):
+        return self._contas
+    
+    @property
+    def endereco(self):
+        return self._endereco
+
+    def realizar_transacao(self, conta: Conta, transacao):
+        transacao.registrar(conta)
+
+    def adicionar_conta(self, conta:Conta):
+        self._contas.append(conta)
+
+
+class PessoaFisica(Cliente):
+    def __init__(self, cpf, nome, data_nascimento, **kw):
+        self._cpf = cpf
+        self._nome = nome 
+        self._data_nascimento = data_nascimento
+        super().__init__(**kw)
+
+    @property
+    def cpf(self):
+        return self._cpf
+    
+    @property
+    def nome(self):
+        return self._nome
+    
+    @property
+    def data_nascimento(self):
+        return self._data_nascimento
+
+class Historico:
+    def __init__(self):
+        self._transacoes = []
+
+    @property
+    def transacoes(self):
+        return self._transacoes
+
+    def adicionar_transacao(self, transacao):
+        self._transacoes.append(
+            {
+                "tipo": transacao.__class__.__name__,
+                "valor": str(transacao.valor),
+                "data": datetime.datetime.now().strftime(f"%d/%m/%Y %H:%M:%S"),
+            }
+        )
+
+    def __str__(self):
+        str = ""
+        for transacao in self._transacoes:
+            str += transacao["tipo"]
+            str += f": R$ "
+            str += transacao["valor"]
+            str += f". Data: "
+            str += transacao["data"]
+            str += f'\n'
+        return str
+
+class Transacao(metaclass=abc.ABCMeta):
+    
+    @abc.abstractmethod
+    def registrar(self, conta):
+        pass
+
+class Deposito(Transacao):
+
+    def __init__(self, valor:float):
+        self._valor = valor
+
+    @property
+    def valor(self):
+        return self._valor
+
+    def registrar(self, conta:Conta):
+        if conta.depositar(valor=self._valor):
+            conta.historico.adicionar_transacao(self)
+
+class Saque(Transacao):
+
+    def __init__(self, valor):
+        self._valor = valor
+
+    @property
+    def valor(self):
+        return self._valor
+
+    def registrar(self, conta:Conta):
+        if conta.sacar(valor=self._valor):
+            conta.historico.adicionar_transacao(self)
 
 def menu():
     menu = """\n
@@ -52,7 +203,7 @@ def menu():
     return input(textwrap.dedent(menu)).lower()
 
 def criar_usuario(usuarios):
-    cpf = input("Informe o CPF (somente número): ")
+    cpf = input("Informe o CPF (somente números): ")
     usuario = filtrar_usuario(cpf, usuarios)
 
     if usuario:
@@ -60,39 +211,51 @@ def criar_usuario(usuarios):
         return
 
     nome = input("Informe o nome completo: ")
-    data_nascimento = input("Informe a data de nascimento (dd-mm-aaaa): ")
+    data_nascimento_str = input("Informe a data de nascimento (dd/mm/aaaa): ")
+    numeros = data_nascimento_str.split("/")
+    data_nascimento = datetime.date(int(numeros[2]), int(numeros[1]), int(numeros[0]))
     endereco = input("Informe o endereço (logradouro, nro - bairro - cidade/sigla estado): ")
 
-    usuarios.append({"nome": nome, "data_nascimento": data_nascimento, "cpf": cpf, "endereco": endereco})
+    cliente = PessoaFisica(cpf = cpf, nome = nome, data_nascimento = data_nascimento, endereco = endereco)
+    usuarios.append(cliente)
 
-    print("=== Usuário criado com sucesso! ===")
+    print(f"\n=== Usuário criado com sucesso! ===")
 
 
 def filtrar_usuario(cpf, usuarios):
-    usuarios_filtrados = [usuario for usuario in usuarios if usuario["cpf"] == cpf]
+    usuarios_filtrados = [usuario for usuario in usuarios if usuario.cpf == cpf]
     return usuarios_filtrados[0] if usuarios_filtrados else None
 
 
-def criar_conta(agencia, numero_conta, usuarios):
+def criar_conta(numero_conta, usuarios):
     cpf = input("Informe o CPF do usuário: ")
     usuario = filtrar_usuario(cpf, usuarios)
 
     if usuario:
+        conta = ContaCorrente(cliente=usuario, numero=numero_conta)
+        usuario.adicionar_conta(conta)
         print("\n=== Conta criada com sucesso! ===")
-        return {"agencia": agencia, "numero_conta": numero_conta, "usuario": usuario}
+        return conta
 
-    print("\nUsuário não encontrado, fluxo de criação de conta encerrado!")
+    print("\nUsuário não encontrado!")
 
 
-def listar_contas(contas):
-    for conta in contas:
-        linha = f"""\
-            Agência:\t{conta['agencia']}
-            C/C:\t\t{conta['numero_conta']}
-            Titular:\t{conta['usuario']['nome']}
-        """
-        print("=" * 100)
-        print(textwrap.dedent(linha))
+def listar_contas(usuarios):
+    cpf = input("Informe o CPF do usuário: ")
+    usuario = filtrar_usuario(cpf, usuarios)
+    if usuario:
+        contas = usuario.contas
+        for conta in contas:
+            linha = f"""\
+                Agência:\t{conta.agencia}
+                C/C:\t\t{conta.numero}
+            """
+            print("=" * 100)
+            print(textwrap.dedent(linha))
+
+        return contas
+    
+    print("\nUsuário não encontrado!")
 
 def listar_usuarios(usuarios):
     senhaAdmin = input("Insira a senha de administrador: ")
@@ -102,28 +265,54 @@ def listar_usuarios(usuarios):
     if(senhaAdmin == "senhaMocadaTotalmenteSegura"):
         for usuario in usuarios:
             linha = f"""\
-                Nome:\t\t\t{usuario['nome']}
-                CPF:\t\t\t{usuario['cpf']}
-                Data de Nascimento:\t{usuario["data_nascimento"]}
-                Endereco:\t\t{usuario["endereco"]}
+                Nome:\t\t\t{usuario.nome}
+                CPF:\t\t\t{usuario.cpf}
+                Data de Nascimento:\t{usuario.data_nascimento}
+                Endereco:\t\t{usuario.endereco}
             """
             print("=" * 100)
             print(textwrap.dedent(linha))
     else:
         print("Acesso negado!")
 
-def main():
-    LIMITE_SAQUES = 3
-    AGENCIA = "0001"
+def selecionar_conta(usuarios):
+    contas = listar_contas(usuarios)
+    if contas:
+        numero_conta = input("Informe o número da conta: ")
+        conta_filtrada = [conta for conta in contas if conta.numero == numero_conta]
+        return conta_filtrada[0] if conta_filtrada else None
+    return None
 
-    saldo = 0
-    limite = 500
-    extrato = ""
-    numero_saques = 0;
+def depositar(valor, usuarios):
+    conta = selecionar_conta(usuarios)
+    if conta:
+        usuario:Cliente = conta.cliente
+        transacao = Deposito(valor)
+        usuario.realizar_transacao(conta, transacao)
+        return
+    print("Operação falhou!")
+
+def sacar(valor, usuarios):
+    conta = selecionar_conta(usuarios)
+    if conta:
+        usuario:Cliente = conta.cliente
+        transacao = Saque(valor)
+        usuario.realizar_transacao(conta, transacao)
+        return
+    print("Operação falhou!")
+
+def func_extrato(usuarios):
+    conta:Conta = selecionar_conta(usuarios)
+    if conta:
+        conta.mostrar_historico()
+        return
+    
+    print("Conta inválida!")
+
+def main():
 
     usuarios = []
-    contas = []
-    
+    contas =[]
 
     while True:
 
@@ -132,35 +321,27 @@ def main():
 
         if opcao == "d":
             valor = float(input("Informe o valor do depósito: "))
-            saldo, extrato = depositar(valor, saldo, extrato)
-
+            depositar(valor=valor, usuarios=usuarios)
 
         elif opcao == "s":
             valor = float(input("Informe o valor do saque: "))
-            saldo, extrato = sacar(
-                valor = valor,
-                saldo = saldo,
-                extrato = extrato,
-                limite = limite,
-                numero_saques = numero_saques,
-                LIMITE_SAQUES = LIMITE_SAQUES
-            )
+            sacar(valor=valor, usuarios=usuarios)
 
         elif opcao == "e":
-            func_extrato(saldo, extrato)
+            func_extrato(usuarios=usuarios)
 
         elif opcao == "nu":
             criar_usuario(usuarios)
 
         elif opcao == "nc":
-            numero_conta = len(contas) + 1
-            conta = criar_conta(AGENCIA, numero_conta, usuarios)
+            numero_conta = str(len(contas) + 1)
+            conta = criar_conta(numero_conta, usuarios)
 
             if conta:
                 contas.append(conta)
 
         elif opcao == "lc":
-            listar_contas(contas)
+            listar_contas(usuarios)
 
         elif opcao == "lu":
             listar_usuarios(usuarios)
